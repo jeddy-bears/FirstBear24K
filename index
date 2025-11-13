@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Caleb Williams — QB Tracker</title>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; background:#f6f7f8; color:#111;
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding:40px; margin:0; }
+    header { text-align:center; }
+    h1 { margin:0 0 6px 0; font-size:2rem; }
+    .stat { margin:8px 0; font-size:1.1rem; }
+    .progress-wrap { width:90%; max-width:760px; margin-top:22px; }
+    .bar-track { width:100%; height:36px; background:#ddd; border-radius:999px; position:relative; overflow:hidden; }
+    .bar-fill { height:100%; width:__PROGRESS_PCT__%; background:#0b3d91; border-radius:999px; transition:width 900ms ease-out; }
+    .football { position:relative; width:48px; height:48px; margin-top:12px; }
+    /* Simple "moving object" — an emoji icon that visually moves along with progress using left% */
+    .football .icon { position:relative; left:calc((__PROGRESS_PCT__% - 2%)); transition:left 900ms ease-out; font-size:36px; }
+    footer { margin-top:18px; font-size:0.9rem; color:#666; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Caleb Williams — 2025 Passing Tracker</h1>
+    <div class="stat" id="total">Total Passing Yards: __TOTAL_YARDS__</div>
+    <div class="stat" id="ypg">Current Yards Per Game: __YPG__</div>
+    <div class="stat" id="need">Needs __YPG_NEEDED__ YPG to reach 4000</div>
+  </header>
+
+  <div class="progress-wrap">
+    <div class="bar-track" aria-hidden="true">
+      <div class="bar-fill" id="barfill"></div>
+    </div>
+    <div class="football" aria-hidden="true">
+      <div class="icon" id="footballIcon">🏈</div>
+    </div>
+  </div>
+
+  <footer>
+    Last auto-update: <span id="updatedAt">—</span>
+  </footer>
+
+  <script>
+    // If you ever want client-side fallback, we could parse meta tags,
+    // but this page will be served fully updated by the action (placeholders replaced).
+    // We'll just update the updatedAt timestamp dynamically if page is deployed with current date.
+    document.getElementById('updatedAt').textContent = new Date().toLocaleString();
+  </script>
+</body>
+</html>
