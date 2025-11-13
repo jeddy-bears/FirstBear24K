@@ -1,0 +1,36 @@
+name: Update Caleb Stats
+
+on:
+  schedule:
+    # Every 30 minutes – adjust if you want slower/faster
+    - cron: "*/30 * * * *"
+  # Manual run button in the Actions tab
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run stats update script
+        run: node updateStats.js
+
+      - name: Commit and push caleb_stats.json if changed
+        run: |
+          if [[ `git status --porcelain` ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add caleb_stats.json
+            git commit -m "Update Caleb stats from ESPN"
+            git push
+          else
+            echo "No changes to commit."
+          fi
