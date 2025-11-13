@@ -1,0 +1,121 @@
+// updateStats.js
+// Node script run by GitHub Actions to pull Caleb's stats from ESPN
+// and write them into caleb_stats.json for your static site.
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const PLAYER_NAME = 'Caleb Williams';
+const PLAYER_ID = 4431611; // ESPN NFL ID for Caleb Williams:contentReference[oaicite:1]{index=1}
+const SEASON = 2025;       // adjust if you roll this to another year
+const GOAL_YARDS = 4000;
+
+// If you ever want to look up by name instead of hardcoding the ID:
+async function lookupPlayerIdByName(name) {
+  // ESPN athletes v3 endpoint (all active NFL players):contentReference[oaicite:2]{index=2}
+  const url = 'https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?limit=20000&active=true';
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`ESPN athletes search failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  const items = data.items || data.athletes || [];
+
+  const match = items.find((p) => {
+    const fullName =
+      (p.fullName ||
+        (p.athlete && p.athlete.fullName) ||
+        p.name ||
+        '').toLowerCase();
+    return fullName === name.toLowerCase();
+  });
+
+  if (!match) return null;
+
+  const rawId = match.id || (match.athlete && match.athlete.id);
+  return rawId ? parseInt(rawId, 10) : null;
+}
+
+// Gamelog endpoint (per-game stats):contentReference[oaicite:3]{index=3}
+async function fetchGamelog(playerId, season) {
+  const url = `https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/${playerId}/gamelog?season=${season}&type=2`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error(`ESPN gamelog failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data;
+}
+
+// This helper is based on typical ESPN gamelog/stat structures where stats
+// have a "name" and "value" field including "passingYards".:contentReference[oaicite:4]{index=4}
+function getTotalPassingYardsFromGamelog(gamelogJson) {
+  let total = 0;
+
+  // ESPN uses different keys in different contexts; we defensively check a few.
+  const games =
+    gamelogJson.events ||
+    gamelogJson.items ||
+    gamelogJson.games ||
+    [];
+
+  for (const game of games) {
+    const categories = game.stats || game.categories || [];
+
+    for (const cat of categories) {
+      const statsArray = cat.stats || cat.statistics || [];
+
+      for (const stat of statsArray) {
+        if (stat.name === 'passingYards' && typeof stat.value === 'number') {
+          total += stat.value;
+        }
+      }
+    }
+  }
+
+  return total;
+}
+
+async function main() {
+  let id = PLAYER_ID;
+
+  // Optional: uncomment this if you want to verify the ID once by name.
+  // if (!id) {
+  //   id = await lookupPlayerIdByName(PLAYER_NAME);
+  //   if (!id) throw new Error(`Could not find ESPN id for ${PLAYER_NAME}`);
+  //   console.log('Found ESPN ID for', PLAYER_NAME, '=>', id);
+  // }
+
+  const gamelog = await fetchGamelog(id, SEASON);
+
+  // For debugging the first time, you can uncomment this to see the raw shape
+  // in your GitHub Actions log, then re-comment it once you’re sure:
+  // console.log(JSON.stringify(gamelog, null, 2));
+
+  const totalYards = getTotalPassingYardsFromGamelog(gamelog);
+  const yardsRemaining = Math.max(GOAL_YARDS - totalYards, 0);
+
+  const stats = {
+    playerName: PLAYER_NAME,
+    espnId: id,
+    season: SEASON,
+    passingYards: totalYards,
+    goalYards: GOAL_YARDS,
+    yardsRemaining,
+    progressPct: Math.min(totalYards / GOAL_YARDS, 1),
+    lastUpdated: new Date().toISOString(),
+  };
+
+  const outPath = path.join(process.cwd(), 'caleb_stats.json');
+  fs.writeFileSync(outPath, JSON.stringify(stats, null, 2));
+  console.log(`Wrote ${outPath}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
