@@ -1,0 +1,98 @@
+// updateStats.js
+const fs = require('fs');
+const fetch = require('node-fetch'); // v2 syntax in GH Actions
+const path = require('path');
+
+const API_KEY = process.env.API_KEY; // stored as a secret in GitHub
+const API_PROVIDER = process.env.API_PROVIDER || 'API_SPORTS'; // optional flag
+const SEASON = '2025';
+const TARGET_YARDS = 4000;
+const SEASON_LENGTH = 17;
+const PLAYER_SEARCH_NAME = 'Caleb Williams'; // used if you need to search for ID
+
+// ---- Helper: adjust endpoint to match provider ----
+// Example here uses API-Sports style endpoints -- you will need to modify to match actual API
+async function findPlayerId() {
+  // Example: search players endpoint (modify to your chosen API docs)
+  const url = `https://v3.football.api-sports.io/players?search=${encodeURIComponent(PLAYER_SEARCH_NAME)}&season=${SEASON}`;
+  const res = await fetch(url, { headers: { 'x-apisports-key': API_KEY }});
+  const json = await res.json();
+  if (!json || !json.response || json.response.length === 0) {
+    throw new Error('Player not found via search. Check PLAYER_SEARCH_NAME and API.');
+  }
+  // find exact match for team if necessary (Chicago)
+  const candidate = json.response.find(p => p.player.name.toLowerCase().includes('caleb') && p.player.name.toLowerCase().includes('williams'));
+  const playerId = candidate ? candidate.player.id : json.response[0].player.id;
+  return playerId;
+}
+
+async function fetchSeasonStats(playerId) {
+  // Example endpoint returning aggregated season stats
+  const url = `https://v3.football.api-sports.io/players/statistics?player=${playerId}&season=${SEASON}`;
+  const res = await fetch(url, { headers: { 'x-apisports-key': API_KEY }});
+  const json = await res.json();
+  if (!json || !json.response || json.response.length === 0) {
+    throw new Error('No stats response for player.');
+  }
+  // This object depends on provider structure. Adjust accessors accordingly.
+  const stats = json.response[0]; // might contain .statistics[0].games.played and .statistics[0].goals etc.
+  // Attempt reasonable extraction:
+  // Many APIs nest passing stats differently. Check the provider's JSON and adjust:
+  const gamesPlayed = stats.games && stats.games.appearences ? stats.games.appearences : (stats.statistics && stats.statistics[0] && stats.statistics[0].games ? stats.statistics[0].games.played : 0);
+  // example: some APIs have passing.yards:
+  const passing = (stats.statistics && stats.statistics[0] && stats.statistics[0].passing) ? stats.statistics[0].passing : (stats.passing || {});
+  const totalYards = passing.yards != null ? passing.yards : 0;
+
+  return { totalYards: Number(totalYards), gamesPlayed: Number(gamesPlayed) };
+}
+
+function computeMetrics(totalYards, gamesPlayed) {
+  const ypg = gamesPlayed > 0 ? (totalYards / gamesPlayed) : 0;
+  const gamesRemaining = SEASON_LENGTH - gamesPlayed;
+  const yardsNeeded = TARGET_YARDS - totalYards;
+  const ypgNeeded = (gamesRemaining > 0) ? (yardsNeeded / gamesRemaining) : yardsNeeded;
+  const progressPct = Math.min(100, (totalYards / TARGET_YARDS) * 100);
+  return {
+    ypg: Number(ypg.toFixed(1)),
+    yardsNeeded: Math.max(0, Math.round(yardsNeeded)),
+    ypgNeeded: Number(ypgNeeded.toFixed(1)),
+    gamesRemaining,
+    progressPct: Number(progressPct.toFixed(1))
+  };
+}
+
+function replacePlaceholders(indexHtmlPath, stats, metrics) {
+  let html = fs.readFileSync(indexHtmlPath, 'utf8');
+  html = html.replace(/__TOTAL_YARDS__/g, stats.totalYards);
+  html = html.replace(/__GAMES_PLAYED__/g, stats.gamesPlayed);
+  html = html.replace(/__YPG__/g, metrics.ypg);
+  html = html.replace(/__YPG_NEEDED__/g, metrics.ypgNeeded);
+  html = html.replace(/__PROGRESS_PCT__/g, metrics.progressPct);
+  fs.writeFileSync(indexHtmlPath, html, 'utf8');
+}
+
+(async () => {
+  try {
+    if (!API_KEY) throw new Error('Missing API_KEY env var.');
+    const indexPath = path.join(process.cwd(), 'index.html');
+
+    // 1) find player id (if needed)
+    const playerId = await findPlayerId();
+    console.log('Found playerId:', playerId);
+
+    // 2) fetch season stats
+    const stats = await fetchSeasonStats(playerId);
+    console.log('Raw stats:', stats);
+
+    // 3) compute metrics
+    const metrics = computeMetrics(stats.totalYards, stats.gamesPlayed);
+
+    // 4) replace placeholders in index.html
+    replacePlaceholders(indexPath, stats, metrics);
+
+    console.log('Updated index.html with:', { stats, metrics });
+  } catch (err) {
+    console.error('Error updating stats:', err);
+    process.exit(1);
+  }
+})();
